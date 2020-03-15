@@ -1,0 +1,209 @@
+#include <ENGG1500Lib.h>
+
+
+/* ENGG1500 project code
+PLAN:
+ - Sense
+ - Think
+ - Move
+
+ Some sort of state machine arcitecture
+
+
+COMPETANCY OBJECTIVES
+ 1. Get distance sensor working
+ 2. Get robot moving
+      - Get clicks up
+ 3. Get control algorithm up
+ 4. Test!
+ 5. Course specific control algorithm
+*/
+
+//Pins
+#define Dist_0_Echo 12
+#define Dist_0_Trig 7
+#define left_motor 5
+#define right_motor 6
+
+//Variables
+int debug = 1;
+unsigned int distance_mm = 0;
+int Target_Threshold = 200;
+int speed_value = 0;
+double previous_time = 0;
+
+void setup() {
+  //Enable distance sensor pins
+  pinMode(Dist_0_Echo,INPUT);
+  pinMode(Dist_0_Trig,OUTPUT);
+
+  //Enable motor pins
+  pinMode(left_motor,OUTPUT);
+  pinMode(6,OUTPUT);
+  pinMode(8,OUTPUT);
+  pinMode(9,OUTPUT);
+  pinMode(10,OUTPUT);
+  pinMode(11,OUTPUT);
+  
+  if(debug){Serial.begin(9600);} // If degub is on start Serial
+  
+  enc_init(); // init motor encoders
+  
+  //Delay to get everything set
+  delay(5000);
+ 
+}
+
+//Functions
+void set_left_forwards(void) //This function sets IN1 = LOW and IN2 = HIGH in order to
+//... set the direction to forwards for motor 1
+{
+digitalWrite(8,LOW); //IN1
+digitalWrite(9,HIGH); //IN2
+}
+
+void set_left_backwards(void) //This function sets IN1 = HIGH and IN2 = LOW in order
+//...to set the direction to backwards for motor 1
+{
+digitalWrite(8,HIGH); //IN1
+digitalWrite(9,LOW); //IN2
+}
+
+void set_right_forwards(void) //This function sets IN3 = LOW and IN4 = HIGH in order
+//...to set the direction to forwards for motor 2
+{
+digitalWrite(10,LOW); //IN3
+digitalWrite(11,HIGH); //IN4
+}
+
+void set_right_backwards(void) //This function sets IN3 = HIGH and IN4 = LOW in order
+//...to set the direction to forwards for motor 2
+{
+digitalWrite(10,HIGH); //IN3
+digitalWrite(11,LOW); //IN4
+}
+
+void all_stop(void){
+  analogWrite(left_motor,0);
+  analogWrite(right_motor,0);
+}
+
+void all_forwards(void){
+  set_left_forwards();
+  set_right_forwards();
+}
+
+void all_backwards(void){
+  set_left_backwards();
+  set_right_backwards();
+}
+
+//Given a speed value in clicks per second return the coresponding pwm based on the line
+// inverse of the line y = 0.8(x - 60) + 44 that relates pwm (x) to clicks / second (y)
+int left_motor_approximation(int speed_value){
+  if((speed_value >= 44) & (speed_value <= 116)){
+    return (int) (((speed_value - 44)/0.8)+60);
+    }
+    else{return (int) 0;}
+  }
+
+//Given a speed value in clicks per second return the coresponding pwm based on the line
+// inverse of the line y = 0.755(x - 60) + 44 that relates pwm (x) to clicks / second (y)
+int right_motor_approximation(int speed_value){
+  if((speed_value >= 44) & (speed_value <= 116)){
+    return (int) (((speed_value - 44)/0.755)+60);
+    }
+    else{return (int) 0;}
+  }
+
+unsigned int sonar_mm(void){
+  //Function variables
+  long duration = 0;
+  const float speed_sound = 340.29;// m/s
+  
+  //Trigger sensor
+  digitalWrite(Dist_0_Trig, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(Dist_0_Trig, LOW);
+
+  //Calculate duration
+  duration = pulseIn(Dist_0_Echo, HIGH);
+  
+  //Calculate and return
+  return (unsigned int)(0.5 * duration * 1e-6 * speed_sound * 1e3);
+}
+
+  bool flag = true;
+void loop() {
+
+
+  //Variables
+
+  double previous_time = 0;
+  int target_cps = 100;
+  
+
+  int left_error, right_error = 0;
+  float left_error_sum, right_error_sum, left_prev_error, right_prev_error, left_target_pwm, right_target_pwm, distance_target = 0;
+  
+  float Kp = 0.1;
+  float Ki = 0.001;
+  float Kd = 0.01;
+  
+  all_forwards();
+  distance_target = 1200;
+
+  left_target_pwm = left_motor_approximation(target_cps);
+  right_target_pwm = right_motor_approximation(target_cps);
+  analogWrite(left_motor, left_target_pwm);
+  analogWrite(right_motor, right_target_pwm);
+
+  previous_time = millis();
+  enc_clear();
+
+  while(flag){
+
+  if((millis() - previous_time) > 99){
+
+    //Calculate distance
+    left_error = (enc_getLeft()); // Note here the variables left_error / right_error are reused.
+    right_error = (enc_getRight());
+
+    distance_target -= (((left_error + right_error) /2)* 10.2); //mm
+    Serial.println(distance_target);
+
+    //If we've travelled the distance stop
+    if(distance_target <= 0){
+      flag = false;
+      all_stop();
+      }
+
+    //Calculate errors
+    left_error =  (10 * left_error) - target_cps;
+    right_error =  (10 * right_error) - target_cps;
+
+    //Calculate PID
+    left_error_sum = (left_error * Kp) + (left_error * Ki) + ((left_error - left_prev_error) * Kd);
+    right_error_sum = (right_error * Kp) + (right_error * Ki) + ((right_error - right_prev_error) * Kd);
+
+    //Adjust motor values
+    left_target_pwm -= left_error_sum;
+    right_target_pwm -= right_error_sum;
+    
+    analogWrite(left_motor, (left_target_pwm));
+    analogWrite(right_motor, (right_target_pwm));
+
+//    if(debug){
+//      Serial.print(left_error);
+//      Serial.print("\t");
+//      Serial.println(right_error);
+//      }
+    
+    //Update values
+    previous_time = millis();
+    left_prev_error = left_error;
+    enc_clear();
+    
+    }
+  }
+}
