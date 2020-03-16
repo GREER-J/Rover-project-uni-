@@ -1,0 +1,91 @@
+//START
+#include <ENGG1500Lib.h>
+
+#define right_motor 6
+#define left_motor 5
+
+bool debug =1;
+
+void setup() {
+// put your setup code here, to run once:
+pinMode(5,OUTPUT); //set ENA as an output
+pinMode(6,OUTPUT); //set ENB as an output
+pinMode(8,OUTPUT); //set IN1 as an output
+pinMode(9,OUTPUT); //set IN2 as an output
+pinMode(10,OUTPUT); //set IN3 as an output
+pinMode(11,OUTPUT); //set IN4 as an output
+enc_init();
+delay(2000);
+
+Serial.begin(9600);
+}
+void all_forwards(void){
+  leftForwards();
+  rightForwards();
+}
+void leftForwards(void)
+{
+digitalWrite(8,LOW);
+digitalWrite(9,HIGH);
+}
+void leftBackwards(void)
+{digitalWrite(8,HIGH);
+digitalWrite(9,LOW);
+}
+void rightForwards(void)
+{
+digitalWrite(10,LOW);
+digitalWrite(11,HIGH);
+}
+void rightBackwards(void)
+{
+digitalWrite(10,HIGH);
+digitalWrite(11,LOW);
+}
+//Given a speed value in clicks per second return the coresponding pwm based on the line
+// inverse of the line y = 0.8(x - 60) + 44 that relates pwm (x) to clicks / second (y)
+int left_motor_approximation(int speed_value){
+  if((speed_value >= 44) & (speed_value <= 116)){
+    return (int) (((speed_value - 44)/0.8)+60);
+    }
+    else{return (int) 0;}
+  }
+
+//Given a speed value in clicks per second return the coresponding pwm based on the line
+// inverse of the line y = 0.755(x - 60) + 44 that relates pwm (x) to clicks / second (y)
+int right_motor_approximation(int speed_value){
+  if((speed_value >= 44) & (speed_value <= 116)){
+    return (int) (((speed_value - 44)/0.755)+60);
+    }
+    else{return (int) 0;}
+  }
+int left_cps, right_cps = 0;
+int pwm = 45;
+float error_test = 0;
+double start_time_test, time_delta= 0;
+bool test_continue = true;
+
+void loop() {
+  all_forwards();
+  while(test_continue){
+  for(pwm; pwm <= 255; pwm+=5){
+    enc_clear();
+    
+    analogWrite(right_motor, pwm);
+    analogWrite(left_motor, pwm);
+
+    delay(6000);
+    left_cps = enc_getLeft() / 6;
+    right_cps = enc_getRight() / 6;
+
+    Serial.print(pwm);
+    Serial.print(".");
+    Serial.print(left_cps);
+    Serial.print(".");
+    Serial.println(right_cps);
+}
+analogWrite(left_motor, 0);
+analogWrite(right_motor, 0);
+}
+test_continue = false;
+}
