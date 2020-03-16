@@ -1,0 +1,151 @@
+//START
+#include <ENGG1500Lib.h>
+
+#define right_motor 6
+#define left_motor 5
+
+bool debug =1;
+
+void setup() {
+// put your setup code here, to run once:
+pinMode(5,OUTPUT); //set ENA as an output
+pinMode(6,OUTPUT); //set ENB as an output
+pinMode(8,OUTPUT); //set IN1 as an output
+pinMode(9,OUTPUT); //set IN2 as an output
+pinMode(10,OUTPUT); //set IN3 as an output
+pinMode(11,OUTPUT); //set IN4 as an output
+enc_init();
+delay(2000);
+
+Serial.begin(9600);
+}
+void all_forwards(void){
+  leftForwards();
+  rightForwards();
+}
+void leftForwards(void)
+{
+digitalWrite(8,LOW);
+digitalWrite(9,HIGH);
+}
+void leftBackwards(void)
+{digitalWrite(8,HIGH);
+digitalWrite(9,LOW);
+}
+void rightForwards(void)
+{
+digitalWrite(10,LOW);
+digitalWrite(11,HIGH);
+}
+void rightBackwards(void)
+{
+digitalWrite(10,HIGH);
+digitalWrite(11,LOW);
+}
+//Given a speed value in clicks per second return the coresponding pwm based on the line
+// inverse of the line y = 0.8(x - 60) + 44 that relates pwm (x) to clicks / second (y)
+int left_motor_approximation(int speed_value){
+  if((speed_value >= 44) & (speed_value <= 116)){
+    return (int) (((speed_value - 44)/0.8)+60);
+    }
+    else{return (int) 0;}
+  }
+
+//Given a speed value in clicks per second return the coresponding pwm based on the line
+// inverse of the line y = 0.755(x - 60) + 44 that relates pwm (x) to clicks / second (y)
+int right_motor_approximation(int speed_value){
+  if((speed_value >= 44) & (speed_value <= 116)){
+    return (int) (((speed_value - 44)/0.755)+60);
+    }
+    else{return (int) 0;}
+  }
+int drive_straight(float distance_target, int target_cps){
+    //Variables
+  double previous_time = 0;
+  int left_error, right_error, error_sum = 0;
+  float left_error_sum, right_error_sum, left_prev_error, right_prev_error, left_target_cps, right_target_cps = 0;
+  
+  float Kp = 0.1;
+  float Ki = 0.001;
+  float Kd = 0.01;
+  
+  bool flag = true;
+  
+  all_forwards();
+
+  left_target_cps = left_motor_approximation(target_cps);
+  right_target_cps = right_motor_approximation(target_cps);
+  
+  analogWrite(right_motor, right_target_cps);
+  analogWrite(left_motor, left_target_cps);
+  
+
+  previous_time = millis();
+  enc_clear();
+
+  while(flag){
+
+  if((millis() - previous_time) > 99){
+
+    //Calculate distance
+    left_error = (enc_getLeft()); // Note here the variables left_error / right_error are reused.
+    right_error = (enc_getRight());
+
+    distance_target -= (((left_error + right_error) /2)* 10.2); //mm
+
+    //Calculate errors
+    left_error =  (10 * left_error) - target_cps;
+    right_error =  (10 * right_error) - target_cps;
+    error_sum += (abs(left_error) + abs(right_error));
+
+    //Calculate PID
+    left_error_sum = (left_error * Kp) + (left_error * Ki) + ((left_error - left_prev_error) * Kd);
+    right_error_sum = (right_error * Kp) + (right_error * Ki) + ((right_error - right_prev_error) * Kd);
+    
+
+    //Adjust motor values
+    left_target_cps -= left_error_sum;
+    right_target_cps -= right_error_sum;
+
+    analogWrite(right_motor, (right_target_cps));
+    analogWrite(left_motor, (left_target_cps));
+
+    //If we've travelled the distance stop
+    if(distance_target <= 0){
+      flag = false;
+      
+    analogWrite(right_motor, 0);
+    analogWrite(left_motor, 0);;
+      }
+ 
+    
+    //Update values
+    previous_time = millis();
+    left_prev_error = left_error;
+    enc_clear();
+    
+    }
+  }
+  return(error_sum);
+  }
+
+int cps = 45;
+float error_test = 0;
+double start_time_test, time_delta= 0;
+bool test_continue = true;
+
+void loop() {
+while(test_continue){
+for(cps; cps <= 150; cps+=5){
+  start_time_test = millis();
+  //30 seconds total
+  error_test = (drive_straight((cps * 306), cps));
+  time_delta = (millis() - start_time_test);
+  Serial.print(cps);
+  Serial.print("\t");
+  Serial.println(error_test / (time_delta *0.001));
+
+}
+}
+test_continue = false;
+}
