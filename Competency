@@ -1,0 +1,367 @@
+//Libraries
+#include <ENGG1500Lib.h>
+#include <Servo.h>
+
+
+//Pins
+#define left_motor 5
+#define right_motor 6
+
+#define IR_Sensor_Pin_1 13 // *!
+
+#define Dist_0_Echo 12
+#define Dist_0_Trig 7
+#define Dist_1_Trig 24 // *! PINS ARE RANDOM
+#define Dist_1_Echo 25 //*!
+
+#define main_sero_pin A0 //*! 135 = straight / 30 = left
+
+//Variables
+int stage = 0;
+int debug = 1;
+unsigned int distance_mm = 0;
+int Target_Threshold = 200;
+int speed_value = 0;
+double previous_time = 0;
+
+int left_forward_value = 70; //!* Values need to be updated
+int right_forward_value = 67; //!*
+
+int left_clicks_threshold_turn = 15;
+int right_clicks_threshold_turn = 15;
+
+//Stage one important variables
+float distance_accepted_threshold = 30; // In order to be considered straight
+int distance_sensor_trust_distance = 200; //!* fine tune
+
+//Stage two important variables
+//int distance_accepted_threshold = 200;
+
+//Servo stuff
+Servo main_servo;
+
+void setup() {
+  //Enable distance sensor pins
+  pinMode(Dist_0_Echo,INPUT);
+  pinMode(Dist_0_Trig,OUTPUT);
+
+  pinMode(Dist_1_Echo,INPUT);
+  pinMode(Dist_1_Trig,OUTPUT);
+  
+  //Enable motor pins
+  pinMode(left_motor,OUTPUT);
+  pinMode(6,OUTPUT);
+  pinMode(8,OUTPUT);
+  pinMode(9,OUTPUT);
+  pinMode(10,OUTPUT);
+  pinMode(11,OUTPUT);
+
+  //Set up IR sensors
+  pinMode(IR_Sensor_Pin_1, INPUT);
+
+  //Set up servo
+  main_servo.attach(main_sero_pin);
+
+  //Test servo
+  main_servo.write(135); //!* values need to be tuned
+  delay(1000);
+  main_servo.write(35);
+  delay(1000);
+  main_servo.write(135);
+  delay(1000);
+
+  
+  if(debug){Serial.begin(9600);} // If degub is on start Serial
+  
+  enc_init(); // init motor encoders
+  
+  //Delay to get everything set
+  delay(5000);
+
+}
+
+//Functions
+void set_left_forwards(void) //This function sets IN1 = LOW and IN2 = HIGH in order to
+//... set the direction to forwards for motor 1
+{
+digitalWrite(8,LOW); //IN1
+digitalWrite(9,HIGH); //IN2
+}
+
+
+void set_left_backwards(void) //This function sets IN1 = HIGH and IN2 = LOW in order
+//...to set the direction to backwards for motor 1
+{
+digitalWrite(8,HIGH); //IN1
+digitalWrite(9,LOW); //IN2
+}
+
+
+void set_right_forwards(void) //This function sets IN3 = LOW and IN4 = HIGH in order
+//...to set the direction to forwards for motor 2
+{
+digitalWrite(10,LOW); //IN3
+digitalWrite(11,HIGH); //IN4
+}
+
+
+void set_right_backwards(void) //This function sets IN3 = HIGH and IN4 = LOW in order
+//...to set the direction to forwards for motor 2
+{
+digitalWrite(10,HIGH); //IN3
+digitalWrite(11,LOW); //IN4
+}
+
+
+void all_stop(void){
+  analogWrite(left_motor,0);
+  analogWrite(right_motor,0);
+}
+
+
+void all_forwards(void){
+  set_left_forwards();
+  set_right_forwards();
+}
+
+
+void all_backwards(void){
+  set_left_backwards();
+  set_right_backwards();
+}
+
+
+//Distance sensor functions
+unsigned int sonar_mm_side(void){
+  //Function variables
+  long duration = 0;
+  const float speed_sound = 340.29;// m/s
+  
+  //Trigger sensor
+  digitalWrite(Dist_1_Trig, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(Dist_1_Trig, LOW);
+
+  //Calculate duration
+  duration = pulseIn(Dist_1_Echo, HIGH);
+  
+  //Calculate and return
+  return (unsigned int)(0.5 * duration * 1e-6 * speed_sound * 1e3);
+}
+
+
+unsigned int sonar_mm_main(void){
+  //Function variables
+  long duration = 0;
+  const float speed_sound = 340.29;// m/s
+  
+  //Trigger sensor
+  digitalWrite(Dist_0_Trig, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(Dist_0_Trig, LOW);
+
+  //Calculate duration
+  duration = pulseIn(Dist_0_Echo, HIGH);
+  
+  //Calculate and return
+  return (unsigned int)(0.5 * duration * 1e-6 * speed_sound * 1e3);
+}
+//Robot functions
+int check_distance_sensors(){}
+
+
+int line_sensor(){
+  sonar_mm_side();
+  sonar_mm_main();
+  }
+
+
+int drive_forward(){
+  all_forwards();
+  analogWrite(right_motor,right_forward_value);
+  analogWrite(left_motor,left_forward_value);
+  }
+
+bool IR_sensor(void){
+  return (!digitalRead(IR_Sensor_Pin_1));
+  }
+
+void turn_full_left(void){
+  //Variables
+  int left_clicks = 0;
+  int right_clicks = 0;
+  enc_clear();
+
+  while((left_clicks < left_clicks_threshold_turn) && (right_clicks < right_clicks_threshold_turn)){
+    //Run motors
+    analogWrite(right_motor, 60); //!*
+    analogWrite(left_motor, 57); //!*
+
+    //Update clicks
+    left_clicks = enc_getLeft();
+    right_clicks = enc_getRight();
+    }
+
+  // If we get here we've completed the turn
+  if(debug){Serial.println("Turn completed");}
+  }
+
+//Finite state machine
+void stage_zero(){
+  //Variables
+  bool result = false;
+  
+  //Set up stuff
+  if(debug){Serial.println("Stage 0");}
+  result = IR_sensor();
+
+  if(IR_sensor()){stage = 4;}
+  stage = 1;
+  }
+
+
+void stage_one(){
+  if(debug){Serial.println("Stage 1 started");}
+  //Declare variables
+  float side_distance = 0;
+  float main_distance = 0;
+  float distance_delta = 0;
+
+  
+  while(stage == 1){
+  //Search for wall
+  side_distance = sonar_mm_side();
+  main_distance = sonar_mm_main();
+
+  //This part handles the case that there's no wall detected to the front
+  while(main_distance > distance_sensor_trust_distance){
+    drive_forward();
+    delay(2000); // To ensure that we've stopped moving
+
+    //Update disatnce values
+    side_distance = sonar_mm_side();
+    main_distance = sonar_mm_main();
+      
+    }
+    if(debug){Serial.println("Wall found");}
+
+    //If it get's to this stage it should (hopefully) be within 200mm of a wall
+    stage = 2;
+  }
+}
+
+void stage_two(){
+  if(debug){Serial.println("Stage 2 started");}
+  
+  //Variables
+  float side_distance = sonar_mm_side();
+  float main_distance = sonar_mm_main();
+  float distance_delta = 0;
+
+  
+  //This part handles the turning
+  distance_delta = (main_distance - side_distance); //If delta is positive then main is higher
+  if(distance_delta >= distance_accepted_threshold){
+    if(main_distance > side_distance){
+      //THESE WILL BE SUBJECT TO CHANGE !*
+      //Turn x clicks to the left !*
+      }
+    else{
+      //Turn x clicks to the right !* !*
+      }
+    }
+
+   //If we get here we're pretty straight
+   stage = 3;
+  }
+
+
+void stage_three(){
+  if(debug){Serial.println("Stage 3");}
+  
+  //Variables
+  float main_distance = sonar_mm_main();
+  int target = main_distance; //Should this be the first distance we see to the wall?
+  float distance_front = sonar_mm_side();
+  float turning_distance = 100; //RANDOM VALUE
+  bool IR_sensor_reading = false;
+  
+  //Setup
+  main_servo.write(30); // !* Turn main servo to the wall (let's say left)
+  
+  while(stage == 3){
+    IR_sensor_reading = IR_sensor(); //!*
+    drive_forward();
+    main_distance = sonar_mm_main();
+    if(main_distance < target){
+      //turn left slightly
+      }
+    else{
+      //Turn right slightly
+      }
+
+    distance_front = sonar_mm_side();
+
+    if(distance_front < turning_distance){
+      all_stop(); //Stop motors
+      delay(1000);
+      turn_full_left(); //Turn to the left
+      main_distance = sonar_mm_main();//Reset distance to wall
+      continue;
+      }
+
+    //IR_sensor_reading = IR_sensor(); **
+    if(IR_sensor_reading){
+      //We have detected black!
+      all_stop(); //Stop all motors
+      stage = 4;
+      }
+    
+    }
+      }
+
+void stage_four(void){
+  // We found the black
+  //Reset phase
+
+  //Turn servo to the front
+  main_servo.write(135);
+  
+  
+  }
+
+void loop() {
+  // put your main code here, to run repeatedly:
+
+  //Check distance sensors -- Come on we might get lucky!
+  if(line_sensor()){
+    stage = 4;
+    }
+
+  switch(stage){
+    case 0:
+    //Set up
+    stage_zero();
+    break;
+
+    case 1:
+    //Find wall
+    stage_one();
+    break;
+
+    case 2:
+    //get close to wall
+    stage_two();
+    break;
+
+    case 3:
+    //Turn and do handrail
+    stage_three();
+    break;
+
+    case 4:
+    //Black box detected
+    stage_four();
+    break;
+    }
+}
